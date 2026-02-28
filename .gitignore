@@ -1,0 +1,29 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# IDE / tooling
+.vs/
+.vscode/
+.idea/
+
+# Logs and temp
+*.log
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+
+# Local load-test artifacts
+platform/performance/.artifacts/
+
+# Rider
+*.sln.iml
+
+# Visual Studio user-specific
+*.csproj.user

@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment configuration to validate/use
+        required: true
+        default: staging
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      push_images:
+        description: Push images to GHCR during manual run
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  release_validation:
+    name: Release Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            .config/dotnet-tools.json
+
+      - name: Restore local tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore ShopNGo.slnx
+
+      - name: Build
+        run: dotnet build ShopNGo.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test ShopNGo.slnx --configuration Release --no-restore --verbosity minimal
+
+      - name: Validate compose
+        run: docker compose config > /dev/null
+
+  build_service_images:
+    name: Build Service Images
+    needs: release_validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: order
+            image_name: shopngo-order-service
+            dockerfile: src/services/order/Dockerfile
+          - service: stock
+            image_name: shopngo-stock-service
+            dockerfile: src/services/stock/Dockerfile
+          - service: notification
+            image_name: shopngo-notification-service
+            dockerfile: src/services/notification/Dockerfile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ github.event_name == 'push' || inputs.push_images }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.image_name }}
+          tags: |
+            type=sha
+            type=ref,event=tag
+            type=raw,value=${{ inputs.environment }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.push_images }}
+
+      - name: Build (and optionally push) image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name == 'push' || inputs.push_images }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deployment_config_validation:
+    name: Deployment Config Validation
+    needs: build_service_images
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate environment config template
+        run: |
+          test -f "platform/deploy/environments/${{ inputs.environment }}.env.example"
+          echo "Using environment config template: platform/deploy/environments/${{ inputs.environment }}.env.example"
+
+      - name: Deployment scaffold (replace with real target)
+        run: |
+          echo "Release artifacts are built."
+          echo "Wire this job to your deployment target (Kubernetes, VM, App Service, ECS, etc.)"
+          echo "using GitHub Environment '${{ inputs.environment }}' secrets and variables."

@@ -1,0 +1,72 @@
+groups:
+  - name: shopngo-alerts
+    rules:
+      - alert: ShopNGoDlqBacklogNonZero
+        expr: shopngo:dlq_messages > 0
+        for: 2m
+        labels:
+          severity: warning
+          category: dlq
+        annotations:
+          summary: "DLQ backlog detected for {{ $labels.queue }}"
+          description: "DLQ queue {{ $labels.queue }} has {{ $value }} messages."
+
+      - alert: ShopNGoDlqBacklogCritical
+        expr: shopngo:dlq_messages >= 5
+        for: 5m
+        labels:
+          severity: critical
+          category: dlq
+        annotations:
+          summary: "Critical DLQ backlog for {{ $labels.queue }}"
+          description: "DLQ queue {{ $labels.queue }} has {{ $value }} messages for 5m."
+
+      - alert: ShopNGoRetryBacklogStuck
+        expr: shopngo:retry_messages > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: retry
+        annotations:
+          summary: "Retry queue backlog is stuck for {{ $labels.queue }}"
+          description: "Retry queue {{ $labels.queue }} remains non-zero for 5 minutes."
+
+      - alert: ShopNGoServiceReadinessDown
+        expr: shopngo:probe_success{probe="ready"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: health
+        annotations:
+          summary: "Service readiness down ({{ $labels.service }})"
+          description: "Blackbox readiness probe failed for {{ $labels.service }}."
+
+      - alert: ShopNGoServiceLivenessDown
+        expr: shopngo:probe_success{probe="live"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          category: health
+        annotations:
+          summary: "Service liveness down ({{ $labels.service }})"
+          description: "Blackbox liveness probe failed for {{ $labels.service }}."
+
+      - alert: ShopNGoTechnicalFailuresElevated
+        expr: shopngo:consumer_technical_failure_rate_5m > 0.001
+        for: 5m
+        labels:
+          severity: warning
+          category: messaging
+        annotations:
+          summary: "Technical consumer failures elevated ({{ $labels.service }}/{{ $labels.consumer }})"
+          description: "Technical failure rate over 5m is {{ $value }} msg/s."
+
+      - alert: ShopNGoOutboxDispatchFailuresElevated
+        expr: shopngo:outbox_dispatch_failure_rate_5m > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: outbox
+        annotations:
+          summary: "Outbox dispatch failures elevated ({{ $labels.service }})"
+          description: "Outbox dispatch failures observed for {{ $labels.service }} over 5m."

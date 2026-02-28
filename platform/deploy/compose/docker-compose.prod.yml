@@ -1,0 +1,84 @@
+services:
+  order-service:
+    build: null
+    image: ${ORDER_SERVICE_IMAGE:?ORDER_SERVICE_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Postgres: Host=${ORDER_DB_HOST};Port=${ORDER_DB_PORT};Database=orderdb;Username=${ORDER_DB_USER};Password=${ORDER_DB_PASSWORD}
+      RabbitMq__HostName: ${RABBITMQ_HOST}
+      RabbitMq__Port: ${RABBITMQ_PORT}
+      RabbitMq__UserName: ${RABBITMQ_USER}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      RabbitMq__Throughput__Level: ${ORDER_RABBITMQ_THROUGHPUT_LEVEL:-Balanced}
+      RabbitMq__Throughput__Endpoints__order.stock-reserved__Level: ${ORDER_RABBITMQ_ENDPOINT_STOCK_RESERVED_LEVEL:-Balanced}
+      RabbitMq__Throughput__Endpoints__order.stock-rejected__Level: ${ORDER_RABBITMQ_ENDPOINT_STOCK_REJECTED_LEVEL:-Balanced}
+      OpenTelemetry__Console__Enabled: "false"
+      OpenTelemetry__Otlp__Enabled: "true"
+      OpenTelemetry__Otlp__Endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OpenTelemetry__Otlp__Protocol: HttpProtobuf
+      OpenTelemetry__Metrics__Prometheus__Enabled: ${OTEL_PROM_METRICS_ENABLED:-false}
+
+  stock-service:
+    build: null
+    image: ${STOCK_SERVICE_IMAGE:?STOCK_SERVICE_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Postgres: Host=${STOCK_DB_HOST};Port=${STOCK_DB_PORT};Database=stockdb;Username=${STOCK_DB_USER};Password=${STOCK_DB_PASSWORD}
+      RabbitMq__HostName: ${RABBITMQ_HOST}
+      RabbitMq__Port: ${RABBITMQ_PORT}
+      RabbitMq__UserName: ${RABBITMQ_USER}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      RabbitMq__Throughput__Level: ${STOCK_RABBITMQ_THROUGHPUT_LEVEL:-Balanced}
+      RabbitMq__Throughput__Endpoints__stock.order-created__Level: ${STOCK_RABBITMQ_ENDPOINT_ORDER_CREATED_LEVEL:-Conservative}
+      OpenTelemetry__Console__Enabled: "false"
+      OpenTelemetry__Otlp__Enabled: "true"
+      OpenTelemetry__Otlp__Endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OpenTelemetry__Otlp__Protocol: HttpProtobuf
+      OpenTelemetry__Metrics__Prometheus__Enabled: ${OTEL_PROM_METRICS_ENABLED:-false}
+      StockConcurrency__Mode: ${STOCK_CONCURRENCY_MODE:-Hybrid}
+      StockConcurrency__Hybrid__Enabled: ${STOCK_CONCURRENCY_HYBRID_ENABLED:-true}
+      StockConcurrency__Hybrid__CanaryPercent: ${STOCK_CONCURRENCY_HYBRID_CANARY_PERCENT:-15}
+      StockConcurrency__Hybrid__LowStockThreshold: ${STOCK_CONCURRENCY_HYBRID_LOW_STOCK_THRESHOLD:-10}
+      StockConcurrency__Hybrid__ConservativeOnGuardrailFailure: ${STOCK_CONCURRENCY_HYBRID_CONSERVATIVE_ON_GUARDRAIL_FAILURE:-true}
+      StockGuardrail__Enabled: ${STOCK_GUARDRAIL_ENABLED:-true}
+      StockGuardrail__FailOpen: ${STOCK_GUARDRAIL_FAIL_OPEN:-true}
+      StockGuardrail__Configuration: ${REDIS_HOST:-redis}:${REDIS_PORT:-6379}
+      StockGuardrail__KeyPrefix: ${STOCK_GUARDRAIL_KEY_PREFIX:-shopngo:stock}
+      StockGuardrail__MaxInFlightPerSku: ${STOCK_GUARDRAIL_MAX_IN_FLIGHT_PER_SKU:-32}
+      StockGuardrail__InFlightTtlSeconds: ${STOCK_GUARDRAIL_IN_FLIGHT_TTL_SECONDS:-30}
+      StockGuardrail__HotSkuWindowSeconds: ${STOCK_GUARDRAIL_HOT_SKU_WINDOW_SECONDS:-60}
+      StockGuardrail__HotSkuEnterThreshold: ${STOCK_GUARDRAIL_HOT_SKU_ENTER_THRESHOLD:-100}
+      StockGuardrail__HotSkuExitThreshold: ${STOCK_GUARDRAIL_HOT_SKU_EXIT_THRESHOLD:-60}
+      StockGuardrail__HotSkuTtlSeconds: ${STOCK_GUARDRAIL_HOT_SKU_TTL_SECONDS:-300}
+
+  notification-service:
+    build: null
+    image: ${NOTIFICATION_SERVICE_IMAGE:?NOTIFICATION_SERVICE_IMAGE is required}
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Postgres: Host=${NOTIFICATION_DB_HOST};Port=${NOTIFICATION_DB_PORT};Database=notificationdb;Username=${NOTIFICATION_DB_USER};Password=${NOTIFICATION_DB_PASSWORD}
+      RabbitMq__HostName: ${RABBITMQ_HOST}
+      RabbitMq__Port: ${RABBITMQ_PORT}
+      RabbitMq__UserName: ${RABBITMQ_USER}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD}
+      RabbitMq__Throughput__Level: ${NOTIFICATION_RABBITMQ_THROUGHPUT_LEVEL:-Aggressive}
+      OpenTelemetry__Console__Enabled: "false"
+      OpenTelemetry__Otlp__Enabled: "true"
+      OpenTelemetry__Otlp__Endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      OpenTelemetry__Otlp__Protocol: HttpProtobuf
+      OpenTelemetry__Metrics__Prometheus__Enabled: ${OTEL_PROM_METRICS_ENABLED:-false}
+
+  order-db:
+    restart: unless-stopped
+
+  stock-db:
+    restart: unless-stopped
+
+  notification-db:
+    restart: unless-stopped
+
+  rabbitmq:
+    restart: unless-stopped

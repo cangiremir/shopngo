@@ -1,0 +1,29 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="docker-compose.yml" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/" />
+  <Folder Name="/src/services/">
+    <Project Path="src/services/notification/NotificationService.csproj" />
+    <Project Path="src/services/order/OrderService.csproj" />
+    <Project Path="src/services/stock/StockService.csproj" />
+  </Folder>
+  <Folder Name="/src/shared/">
+    <Project Path="src/shared/building-blocks/BuildingBlocks.csproj" />
+    <Project Path="src/shared/contracts/Contracts.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/integration/ShopNGo.IntegrationTests/IntegrationTests.csproj" />
+    <Project Path="tests/unit/ShopNGo.UnitTests/UnitTests.csproj" />
+  </Folder>
+</Solution>

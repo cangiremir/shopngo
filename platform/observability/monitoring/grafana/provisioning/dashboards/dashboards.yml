@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: ShopNGo
+    folder: ShopNGo
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 15
+    options:
+      path: /var/lib/grafana/dashboards

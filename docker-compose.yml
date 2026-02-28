@@ -1,0 +1,288 @@
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    depends_on:
+      jaeger:
+        condition: service_started
+    volumes:
+      - ./platform/observability/otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+
+  loki:
+    image: grafana/loki:2.9.10
+    command:
+      - "-config.file=/etc/loki/config.yml"
+    volumes:
+      - ./platform/observability/monitoring/loki/loki-config.yaml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:2.9.10
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+    depends_on:
+      loki:
+        condition: service_started
+    environment:
+      DOCKER_API_VERSION: "1.36"
+    volumes:
+      - ./platform/observability/monitoring/promtail/promtail.yml:/etc/promtail/config.yml:ro
+      - promtail_positions_data:/run/promtail
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      order-service:
+        condition: service_started
+      stock-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      blackbox-exporter:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+    volumes:
+      - ./platform/observability/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./platform/observability/monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./platform/observability/monitoring/prometheus/recording-rules.yml:/etc/prometheus/recording-rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.5
+    depends_on:
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./platform/observability/monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./platform/observability/monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./platform/observability/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./platform/observability/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    command:
+      - "--config.file=/etc/blackbox_exporter/blackbox.yml"
+    volumes:
+      - ./platform/observability/monitoring/blackbox/blackbox.yml:/etc/blackbox_exporter/blackbox.yml:ro
+
+  alert-echo:
+    image: mendhak/http-https-echo:31
+    environment:
+      HTTP_PORT: 8080
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq
+    volumes:
+      - ./platform/messaging/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./platform/messaging/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+      - "15692:15692"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  order-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orderdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - order_db_data:/var/lib/postgresql/data
+
+  stock-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: stockdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stockdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - stock_db_data:/var/lib/postgresql/data
+
+  notification-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: notificationdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d notificationdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - notification_db_data:/var/lib/postgresql/data
+
+  order-service:
+    build:
+      context: .
+      dockerfile: src/services/order/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=order-db;Port=5432;Database=orderdb;Username=postgres;Password=postgres
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__UserName: guest
+      RabbitMq__Password: guest
+      RabbitMq__Throughput__Level: ${ORDER_RABBITMQ_THROUGHPUT_LEVEL:-Balanced}
+      RabbitMq__Throughput__Endpoints__order.stock-reserved__Level: ${ORDER_RABBITMQ_ENDPOINT_STOCK_RESERVED_LEVEL:-Balanced}
+      RabbitMq__Throughput__Endpoints__order.stock-rejected__Level: ${ORDER_RABBITMQ_ENDPOINT_STOCK_REJECTED_LEVEL:-Balanced}
+      OpenTelemetry__Console__Enabled: "false"
+      OpenTelemetry__Otlp__Enabled: "true"
+      OpenTelemetry__Otlp__Endpoint: http://otel-collector:4318
+      OpenTelemetry__Otlp__Protocol: HttpProtobuf
+      OpenTelemetry__Metrics__Prometheus__Enabled: "true"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      order-db:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "8081:8080"
+
+  stock-service:
+    build:
+      context: .
+      dockerfile: src/services/stock/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=stock-db;Port=5432;Database=stockdb;Username=postgres;Password=postgres
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__UserName: guest
+      RabbitMq__Password: guest
+      RabbitMq__Throughput__Level: ${STOCK_RABBITMQ_THROUGHPUT_LEVEL:-Balanced}
+      RabbitMq__Throughput__Endpoints__stock.order-created__Level: ${STOCK_RABBITMQ_ENDPOINT_ORDER_CREATED_LEVEL:-Conservative}
+      OpenTelemetry__Console__Enabled: "false"
+      OpenTelemetry__Otlp__Enabled: "true"
+      OpenTelemetry__Otlp__Endpoint: http://otel-collector:4318
+      OpenTelemetry__Otlp__Protocol: HttpProtobuf
+      OpenTelemetry__Metrics__Prometheus__Enabled: "true"
+      StockConcurrency__Mode: Hybrid
+      StockConcurrency__Hybrid__Enabled: "true"
+      StockConcurrency__Hybrid__CanaryPercent: "15"
+      StockConcurrency__Hybrid__LowStockThreshold: "10"
+      StockConcurrency__Hybrid__ConservativeOnGuardrailFailure: "true"
+      StockGuardrail__Enabled: "true"
+      StockGuardrail__FailOpen: "true"
+      StockGuardrail__Configuration: redis:6379
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      stock-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "8082:8080"
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/services/notification/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Postgres: Host=notification-db;Port=5432;Database=notificationdb;Username=postgres;Password=postgres
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__UserName: guest
+      RabbitMq__Password: guest
+      RabbitMq__Throughput__Level: ${NOTIFICATION_RABBITMQ_THROUGHPUT_LEVEL:-Aggressive}
+      OpenTelemetry__Console__Enabled: "false"
+      OpenTelemetry__Otlp__Enabled: "true"
+      OpenTelemetry__Otlp__Endpoint: http://otel-collector:4318
+      OpenTelemetry__Otlp__Protocol: HttpProtobuf
+      OpenTelemetry__Metrics__Prometheus__Enabled: "true"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      notification-db:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "8083:8080"
+
+volumes:
+  order_db_data:
+  stock_db_data:
+  notification_db_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  promtail_positions_data:

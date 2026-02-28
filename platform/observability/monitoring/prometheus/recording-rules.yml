@@ -1,0 +1,35 @@
+groups:
+  - name: shopngo-recording-rules
+    interval: 15s
+    rules:
+      - record: shopngo:queue_messages
+        expr: |
+          max by (queue) (
+            rabbitmq_detailed_queue_messages{queue!=""}
+            or
+            rabbitmq_queue_messages{queue!=""}
+          )
+
+      - record: shopngo:dlq_messages
+        expr: |
+          max by (queue) (shopngo:queue_messages{queue=~".*\\.dlq$"})
+
+      - record: shopngo:retry_messages
+        expr: |
+          max by (queue) (shopngo:queue_messages{queue=~".*\\.retry$"})
+
+      - record: shopngo:probe_success
+        expr: |
+          max by (service, probe) (probe_success{job="shopngo-health"})
+
+      - record: shopngo:consumer_technical_failure_rate_5m
+        expr: |
+          sum by (service, consumer) (
+            rate(shopngo_consumer_messages_total{result="technical_exception"}[5m])
+          )
+
+      - record: shopngo:outbox_dispatch_failure_rate_5m
+        expr: |
+          sum by (service) (
+            rate(shopngo_outbox_dispatch_total{result="failure"}[5m])
+          )

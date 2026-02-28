@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build_and_unit_tests:
+    name: Build And Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            .config/dotnet-tools.json
+
+      - name: Restore local tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore ShopNGo.slnx
+
+      - name: Build (Release)
+        run: dotnet build ShopNGo.slnx --configuration Release --no-restore
+
+      - name: Unit tests
+        run: dotnet test tests/unit/ShopNGo.UnitTests/UnitTests.csproj --configuration Release --no-restore --verbosity minimal
+
+  static_analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            .config/dotnet-tools.json
+
+      - name: Restore local tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore ShopNGo.slnx
+
+      - name: Formatting check
+        run: dotnet format ShopNGo.slnx --verify-no-changes --verbosity minimal
+
+      - name: Analyzer/build warnings as errors
+        run: dotnet build ShopNGo.slnx --configuration Release --no-restore -warnaserror
+
+  container_build:
+    name: Container Build Validation
+    needs:
+      - build_and_unit_tests
+      - static_analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate compose
+        run: docker compose config > /dev/null
+
+      - name: Build service images
+        run: docker compose build --pull order-service stock-service notification-service
+
+  integration_tests:
+    name: Integration Tests (RabbitMQ + Postgres)
+    needs:
+      - container_build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Packages.props
+            .config/dotnet-tools.json
+
+      - name: Docker info
+        run: docker version
+
+      - name: Restore local tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore ShopNGo.slnx
+
+      - name: Integration tests
+        run: dotnet test tests/integration/ShopNGo.IntegrationTests/IntegrationTests.csproj --configuration Release --no-restore --verbosity minimal
